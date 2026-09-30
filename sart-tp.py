@@ -31,6 +31,23 @@ a conditional stimulus, depending on their response to probe 1. If on-task in pr
 wherein they are told either to press the <left> or <right> key. If off-task or did not respond to probe 1, they are asked whether
 they were externally distracted (<left>) or daydreaming/mindwandering (<right>). This response is also recorded in the excel output.
 
+-------------------------------------------------------------------
+# 2026 revision (Becev) — what differs from the description above
+
+Trial timing is no longer hard-coded here. Both the stimulus duration and the
+ISI are read per trial from the condition file columns "stimulusDuration" and
+"isi" (milliseconds), so the xlsx is the single source of truth. The values in
+Block1.xlsx are 250 ms digit + 900 ms ISI, i.e. the standard SART, not the
+500/1800 ms described below.
+
+Number trials now show the classic SART mask (a ring with an X) for the whole
+ISI, starting the frame after the digit goes off, and the next trial begins
+immediately afterwards. Probe trials keep a blank ISI.
+
+The paragraph below about 5 blocks / 1725 trials describes the original fMRI
+version. Block1.xlsx currently holds 241 trials (200 non-target, 25 target,
+8 probe pairs) in a single block.
+
 There are 5 blocks total, with 1725 total trials. Each block has 297 non-target trials, 16 target trials, and 16 thought probe pairs (probe 1
 and probe 2), totaling 345 trials. Targets and thought probe pairs were pseudocounterbalanced to only occur with a random distance between
 5-15 non-target trials away from each other (e.g., you receive a target trial --> you will receive another target OR probe between
@@ -54,13 +71,32 @@ import pandas as pd
 PSYCHOPY_VERSION = '2021.2.2'
 EXP_NAME = 'SART-TP'
 FRAME_TOLERANCE = 0.0001
-REFRESH_RATE = 1.0 / 60.0 # Edit if the refresh rate of your monitor is a different Hz.
-NUM_ISI = 1.8 # Blank screen duration following a non-target/target trial
-NUM_DURATION = 0.5 # Stimulus duration for a non-target/target trial
-PROBE1_ISI = 3 # Blank screen duration following a probe 1 trial
-PROBE1_DURATION = 8 # Stimulus duration for a probe 1 trial
-PROBE2_ISI = 3 # Blank screen duration following a probe 2 trial
-PROBE2_DURATION = 8 # Stimulus duration for a probe 2 trial
+REFRESH_RATE = 1.0 / 60.0 # Fallback only; used if getActualFrameRate() fails.
+
+# Stimulus and ISI durations are NO LONGER constants. They are read per trial
+# from the condition file (columns "stimulusDuration" and "isi", both in
+# milliseconds) and converted to frame counts by ms_to_frames(). The xlsx is
+# therefore the single source of truth for trial timing — if you want to change
+# how long a digit or a probe stays on screen, edit the table, not this file.
+
+# Digit heights in CENTIMETRES, indexed by the condition file's "size" column
+# (size 1 -> FONT_SIZES[0], ... size 5 -> FONT_SIZES[4]).
+#
+# These are the five digit heights of the original SART (Robertson et al.,
+# 1997: 12, 18, 23, 25 and 29 mm), which is why the stimuli are drawn in 'cm'
+# and not in degrees of visual angle: the quantity being reproduced is a
+# physical size on the screen. Drawing in cm needs only the monitor's width
+# and pixel resolution, so it does not depend on the viewing distance being
+# exactly what setup_monitor.py claims — whereas a size in degrees would.
+# Varying the height across trials is what stops participants using the
+# digit's size, rather than its identity, as a cue.
+#
+# One caveat if you need to match the original's physical sizes exactly:
+# PsychoPy's height is the font's em size, and a rendered digit is roughly 70%
+# of that, so a "1.20 cm" digit measures nearer 0.85 cm with a ruler on the
+# screen. The five values are in the right ratios either way; scale them all
+# by ~1.4 if the absolute millimetres have to match Robertson et al.
+FONT_SIZES = [1.20, 1.80, 2.35, 2.50, 3.00]
 
 # Cedrus RB-840 (XID mode) response pad — optional, runs alongside the keyboard.
 # Set USE_CEDRUS = False to run keyboard-only, e.g. when piloting without the pad.
@@ -73,17 +109,26 @@ CEDRUS_LEFT_BUTTON = 2   # XID button wired to the participant's left index fing
 CEDRUS_RIGHT_BUTTON = 5  # XID button wired to the participant's right index finger
 CEDRUS_KEY_MAP = {CEDRUS_LEFT_BUTTON: 'left', CEDRUS_RIGHT_BUTTON: 'right'}
 
+# Font for the instruction screens. It has to carry two things at once: Czech
+# diacritics, and the ◄ ► glyphs (U+25C4 / U+25BA, the Geometric Shapes block)
+# used to name the response keys. Naming a font is exactly how you lose the
+# second of those — a missing glyph renders as a blank or a box rather than
+# raising — so verify with test_instructions.py before collecting data.
+# Arial is the safe default on Windows; it covers both.
+INSTRUCTION_FONT = 'Arial'
+
 PRACTICE_INSTRUCTIONS = [
-    'Vítejte v úloze SART-TP.',
-    'V této úloze uvidíte čísla od 0 do 9. Vaším úkolem je stisknout ← levou šipku pokaždé, když se na obrazovce objeví jakékoli číslo KROMĚ čísla 3.\n Pokud se objeví číslo 3, ← levou šipku nestiskněte.',
-    'Občas se může objevit otázka, zda byla vaše pozornost zaměřena na úkol. \n Pokud ano, stiskněte ← levou šipku. \n\n Pokud vaše pozornost nebyla zaměřena na úkol, stiskněte → pravou šipku.',
-    'Pokud bude vaše pozornost zaměřena na úkol, budete vyzván/a ke stisknutí buď ← levé šipky, nebo → pravé šipky.',
-    'Pokud vaše pozornost nebyla zaměřena na úkol, budete dotázán/a, zda byla vaše pozornost rozptýlena vnějšími podněty ← levá šipka, nebo zda jste se zasnil/a → pravá šipka.'
+    'Vítejte v úloze SART-TP.\n Pokračuj stiskem pravé klávesy',
+    'V této úloze uvidíte na obrazovce číslovky 1 až 9 v náhodném pořadí. \n Vaším úkolem je stisknout [color=green]◄[/color] pokaždé, když se na obrazovce objeví jakékoli číslo KROMĚ čísla 3.\n Pokud se objeví číslo 3, [color=green]◄[/color] nestiskněte.',
+    'V průběhu experimentu se občas objeví otázka, zda byla zrovna vaše pozornost zaměřena na úkol, nebo byla někde jinde. \n\n Pokud byla zaměřena na úkol, zvolíte [color=green]◄[/color]. \n\n Pokud vaše pozornost nebyla zaměřena na úkol, stiskněte [color=blue]►[/color].',
+    'Pokud jste odpověděl/a, že pozornost BYLA zaměřena na úkol, budete ještě pro kontrolu vyzván/a ke stisknutí buď [color=green]◄[/color], nebo [color=blue]►[/color].',
+    'Pokud jste odpověděl/a, že vaše pozornost NEBYLA zaměřena na úkol, budete dotázán/a, zda byla vaše pozornost rozptýlena vnějšími podněty ([color=green]◄[/color]), nebo zda jste se zasnil/a ([color=blue]►[/color]). '
 ]
 
 INSTRUCTIONS = [
-    'Vítejte v SART-TP',
-    'Úloha začne za okamžik. Prosím vyčkejte.'
+    'Nyní vás čeká skutečná úloha',
+    'Až vás vyzve výzkumník, úlohu spustíte pravým tlačítkem.'
+    'Prosím pamatuj,během této úlohy dávej stejnou důležitost jak rychlosti, tak přesnosti.'
 ]
 
 
@@ -100,17 +145,17 @@ if mon.getWidth() is None or mon.getDistance() is None:
 # Initial Setup
 this_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(this_dir)
-exp_info = {'participující': '', 'sezení': '1', 'practice': ('Yes', 'No')}
+exp_info = {'Subject': 'Pxx', 'Session': 'S00', 'Practice': ('Yes', 'No')}
 dlg = gui.DlgFromDict(dictionary = exp_info, sortKeys=False, title=EXP_NAME)
 if not dlg.OK:
     core.quit()
 exp_info['date'] = data.getDateStr(format="%Y-%m-%d-%H%M")
 exp_info['expName'] = EXP_NAME
 exp_info['psychopyVersion'] = PSYCHOPY_VERSION
-if exp_info['practice'] == "No":
-    filename = this_dir + os.sep + f'data/{exp_info["participující"]}_{EXP_NAME}_{exp_info["date"]}_{exp_info["sezení"]}'
-elif exp_info['practice'] == "Yes":
-    filename = this_dir + os.sep + f'data/{exp_info["participující"]}_{EXP_NAME}_{exp_info["date"]}_PRACTICE'
+if exp_info['Practice'] == "No":
+    filename = this_dir + os.sep + f'data/{exp_info["Subject"]}_{EXP_NAME}_{exp_info["date"]}_{exp_info["Session"]}'
+elif exp_info['Practice'] == "Yes":
+    filename = this_dir + os.sep + f'data/{exp_info["Subject"]}_{EXP_NAME}_{exp_info["date"]}_PRACTICE'
 
 # Experiment Handler - handles saving data during the task.
 thisExp = data.ExperimentHandler(
@@ -192,7 +237,22 @@ def poll_cedrus():
         cedrus_dev.poll_for_response()
     return responses
 
-instr_stim = visual.TextStim(window)
+# Instructions use TextBox2 rather than TextStim because only TextBox2 parses
+# the inline markup in PRACTICE_INSTRUCTIONS — [color=green]◄[/color],
+# **bold**, *italic*. A TextStim renders those tags as literal characters.
+# Bold and italic are faked by smearing the glyph (0.3 em), not by loading the
+# font's real Bold face, so check they are legible at this letterHeight.
+# TextBox2 wraps to `size` on its own; there is no wrapWidth here.
+instr_stim = visual.TextBox2(
+    window, text='', font=INSTRUCTION_FONT, units='norm',
+    pos=(0, 0), size=(1.7, None), letterHeight=0.075,
+    color='white', alignment='center', anchor='center', editable=False,
+)
+
+# The break countdown keeps a plain TextStim. It only ever shows a single
+# digit, needs no markup, and reusing instr_stim for it would impose the
+# instruction box's width and letter height on the countdown screen.
+count_stim = visual.TextStim(window, font='Open Sans', pos=(0, 0))
 starting_stim = visual.TextStim(window, 'Začínáme za', font='Open Sans', pos=(0, .5))
 break_stim = visual.TextStim(window, 'PAUZA', font='Open Sans', pos=(0, .5))
 complete_stim = visual.TextStim(window, 'Dokončil/a jste úlohu.\n\nDěkujeme!', font='Open Sans', pos=(0, 0))
@@ -205,16 +265,84 @@ probe2_resp3 = visual.TextStim(window, 'Byla rozptýlena vnějšími podněty', 
 probe2_resp4 = visual.TextStim(window, 'Byla zasněná', font='Open Sans', pos=(.5,-.5))
 vertical_line = visual.TextStim(window, '|', font='Open Sans', pos=(0, -.5))
 
-# Frames
-num_frames = int(NUM_DURATION / REFRESH_RATE)
-num_isi_frames = int(NUM_ISI / REFRESH_RATE)
-total_num_frames = int(num_frames + num_isi_frames)
-probe1_frames = int(PROBE1_DURATION / REFRESH_RATE)
-probe1_isi_frames = int(PROBE1_ISI / REFRESH_RATE)
-total_probe1_frames = int(probe1_frames + probe1_isi_frames)
-probe2_frames = int(PROBE2_DURATION / REFRESH_RATE)
-probe2_isi_frames = int(PROBE2_ISI / REFRESH_RATE)
-total_probe2_frames = int(probe2_frames + probe2_isi_frames)
+# SART mask, drawn during the ISI of number trials (the classic ring + X).
+#
+# units='cm' is set explicitly because the window itself is in 'norm' (see the
+# log of any run: units='norm'), and these sizes are physical: radius 1.50 cm
+# is the 29 mm ring of the original SART, matching FONT_SIZES above. On this
+# monitor (53 cm / 1920 px = 36.2 px/cm) that is a 109 px circle and a 121 px
+# em box for the X. The X's *drawn* glyph is smaller than 3.35 cm — height
+# sets the font's em size, and a capital is roughly 70% of that — so the arms
+# sit inside the ring rather than crossing it. Check it on the real display
+# before collecting: it is a one-glance judgement that no calculation settles.
+# lineWidth is in pixels regardless of units.
+xStim = visual.TextStim(window, text="X", height=3.35, color="white",
+                        pos=(0, 0), units='cm')
+# fillColor=None is REQUIRED, not tidiness: visual.Circle overrides the
+# ShapeStim default and ships with fillColor="white", so omitting it draws a
+# filled white disc — with the white X on top of it invisible, which looks
+# like the mask "is just a big dot". Do not delete this argument.
+circleStim = visual.Circle(window, radius=1.50, lineWidth=8,
+                           lineColor="white", fillColor=None,
+                           pos=(0, -.2), units='cm')
+
+# The digit gets its own stimulus, separate from `stim` (which carries the
+# probe questions), for two reasons: its units are 'cm' rather than the
+# window's 'norm', and its height changes per trial. Sharing one TextStim
+# would leak the last digit's height into the next probe screen.
+digit_stim = visual.TextStim(window, font='Open Sans', color='white',
+                             pos=(0, 0), units='cm',
+                             height=FONT_SIZES[len(FONT_SIZES) // 2])
+
+
+def digit_height(trial):
+    '''
+    Returns the digit height in cm for a trial, taken from its "size" column
+    (1-5, a 1-based index into FONT_SIZES).
+
+    A missing, empty or out-of-range value falls back to the middle size and
+    logs a warning rather than raising. This matters because BlockPractice.xlsx
+    has no "size" column at all — a hard failure here would abort a session
+    mid-run, which is the worst possible moment to discover a gap in a
+    condition file.
+
+    Parameters:
+    trial (dict): a dictionary containing trial information.
+    '''
+    size = trial['size'] if 'size' in trial else None
+    try:
+        idx = int(size)
+    except (TypeError, ValueError):
+        idx = 0
+    if not 1 <= idx <= len(FONT_SIZES):
+        fallback = FONT_SIZES[len(FONT_SIZES) // 2]
+        logging.warning(
+            f'Trial "size" was {size!r}; expected an integer 1-'
+            f'{len(FONT_SIZES)}. Falling back to {fallback} cm.')
+        return fallback
+    return FONT_SIZES[idx - 1]
+
+
+def ms_to_frames(ms):
+    '''
+    Converts a duration from the condition file (milliseconds) into a whole
+    number of frames, using the frame duration measured at startup.
+
+    Durations are realised as frame counts rather than core.wait() so each
+    one is an exact multiple of the refresh interval. Returns 0 for a blank,
+    zero or non-numeric cell, so e.g. Probe 1's isi=0 correctly means "no ISI
+    at all" rather than a one-frame flicker.
+
+    Parameters:
+    ms (float): duration in milliseconds, as read from the condition file.
+    '''
+    try:
+        ms = float(ms)
+    except (TypeError, ValueError):
+        return 0
+    if not np.isfinite(ms) or ms <= 0:
+        return 0
+    return int(round(ms / 1000.0 / frame_dur))
 
 # Counts
 block_count = 1
@@ -260,14 +388,14 @@ def display_break(start_number, block_count):
     block_count (int): the number of the current block.
     '''
     for sec in range(start_number, 0, -1):
-        instr_stim.setText(str(sec))
+        count_stim.setText(str(sec))
         break_timer = core.CountdownTimer(1)
         while break_timer.getTime() > 0:
             if block_count == 1:
                 starting_stim.draw()
             elif block_count > 1:
                 break_stim.draw()
-            instr_stim.draw()
+            count_stim.draw()
             window.flip()
             abort_if_requested()
 
@@ -313,30 +441,49 @@ def add_trial_data(trial, stim_onset, end_time):
     thisExp.addData('stim_onset', stim_onset)
     thisExp.addData('trial_duration', end_time)
             
-def run_number_trial(trial, trial_clock, total_num_frames, num_frames):
+def run_number_trial(trial, trial_clock):
     '''
-    Handles the logic for a number rial, including displaying stimuli and recording responses.
-    
+    Handles the logic for a number trial, including displaying stimuli and recording responses.
+
+    Timing comes from the trial's own row in the condition file: the digit is
+    shown for "stimulusDuration" ms, then the mask (ring + X) is drawn for
+    "isi" ms, and the trial ends — so the next stimulus follows immediately.
+    Responses are accepted across the whole window (digit + mask), which is
+    what makes 250 ms + 900 ms a 1150 ms response window as in the standard
+    SART.
+
     Parameters:
     trial (dict): a dictionary containing trial information.
     trial_clock (function): a Clock function from Psychopy.
-    total_num_frames (int): the total number of frames for the trial.
-    num_frames (int): the number of frames the stimulus is displayed.
     '''
+    num_frames = ms_to_frames(trial['stimulusDuration'])
+    num_isi_frames = ms_to_frames(trial['isi'])
+    total_num_frames = num_frames + num_isi_frames
     trial_clock.reset()
     correct=0
     sub_resp = None
+    stim_onset = None
+    isi_onset = None
     reset_response_clocks()
     cedrus_responses = []
+    # Set text and height once, not once per frame: both rebuild the stimulus
+    # and doing it inside the loop risks dropping frames on a 15-frame
+    # presentation.
+    height_cm = digit_height(trial)
+    digit_stim.setText(trial['stimulus'])
+    digit_stim.height = height_cm
     for frame_n in range(total_num_frames):
-        if 0 <= frame_n < num_frames:
-            stim.setText(trial['stimulus'])
-            stim.draw()
-            window.flip()
-            if frame_n == 0:
-                stim_onset = global_clock.getTime() * 1000
-        elif num_frames <= frame_n < total_num_frames:
-            window.flip()
+        if frame_n < num_frames:
+            digit_stim.draw()
+        else:
+            circleStim.draw()
+            xStim.draw()
+        window.flip()
+        # Timestamps are taken after flip() returns, i.e. at physical onset.
+        if frame_n == 0:
+            stim_onset = global_clock.getTime() * 1000
+        elif frame_n == num_frames:
+            isi_onset = global_clock.getTime() * 1000
         cedrus_responses += poll_cedrus()
         abort_if_requested()
     keys = sorted(kb.getKeys(['left']) + cedrus_responses, key=lambda k: k.rt)
@@ -354,23 +501,38 @@ def run_number_trial(trial, trial_clock, total_num_frames, num_frames):
     if trial['trialType'] == "Target" and not keys:
         correct = 1
     
-    end_time = trial_clock.getTime() * 1000            
+    end_time = trial_clock.getTime() * 1000
     add_trial_data(trial, stim_onset, end_time)
     thisExp.addData('rt', rt)
     thisExp.addData('timestamp', timestamp)
     thisExp.addData('response', sub_resp)
     thisExp.addData('correct', correct)
-    
-def run_probe1_trial(trial, trial_clock, total_probe1_frames, probe1_frames):
+    # Mask onset, so the realised digit duration (isi_onset - stim_onset) can
+    # be checked against stimulusDuration afterwards. None if isi was 0.
+    thisExp.addData('isi_onset', isi_onset)
+    # Which size index the table asked for, and the height actually drawn —
+    # recording both makes a fallback visible in the data rather than silent.
+    thisExp.addData('size', trial['size'] if 'size' in trial else None)
+    thisExp.addData('digit_height_cm', height_cm)
+
+def run_probe1_trial(trial, trial_clock):
     '''
     Handles the logic for a probe1 trial, including displaying stimuli and recording responses.
-    
+
+    Durations are read from the trial's row ("stimulusDuration" and "isi", ms).
+    The ISI here is a blank screen, not the mask — the mask belongs to the
+    number stream only. Note that a response still breaks out of the loop
+    immediately, so any non-zero isi is skipped whenever the participant
+    answers; with Probe 1's isi=0 in the current tables that makes no
+    difference.
+
     Parameters:
     trial (dict): a dictionary containing trial information.
     trial_clock (function): a Clock function from Psychopy.
-    total_probe1_frames (int): the total number of frames for the probe1 display and response.
-    probe1_frames (int): number of frames that the probe1 stimulus is displayed.
     '''
+    probe1_frames = ms_to_frames(trial['stimulusDuration'])
+    probe1_isi_frames = ms_to_frames(trial['isi'])
+    total_probe1_frames = probe1_frames + probe1_isi_frames
     trial_clock.reset()
     stim_displayed = True
     response_captured = False
@@ -381,7 +543,7 @@ def run_probe1_trial(trial, trial_clock, total_probe1_frames, probe1_frames):
     reset_response_clocks()
     timestamp = None
     for frame_n in range(total_probe1_frames):
-        if 0 <= frame_n <= probe1_frames and response_captured == False:
+        if frame_n < probe1_frames and response_captured == False:
             stim.draw()
             probe1_resp1.draw()
             probe1_resp2.draw()
@@ -411,16 +573,22 @@ def run_probe1_trial(trial, trial_clock, total_probe1_frames, probe1_frames):
     
     return previous_resp
     
-def run_probe2_trial(trial, trial_clock, previous_resp, total_probe2_frames, probe2_frames):
+def run_probe2_trial(trial, trial_clock, previous_resp):
     '''
     Handles the logic for a probe2 trial, including displaying stimuli and recording responses.
-    
+
+    Durations are read from the trial's row ("stimulusDuration" and "isi", ms).
+    As in probe 1 the ISI is a blank screen rather than the mask. The current
+    tables specify isi=5000 here, but the loop is not broken on response, so
+    that blank period does run — it is the gap before the digit stream resumes.
+
     trial (dict): a dictionary containing trial information.
     trial_clock (function): a Clock function from Psychopy.
     previous_resp (int): calls run_probe1_trial to return previous probe1 response and determines stimulus in probe2.
-    tota2_probe1_frames (int): the total number of frames for the probe2 display and response.
-    probe2_frames (int): number of frames that the probe2 stimulus is displayed.
     '''
+    probe2_frames = ms_to_frames(trial['stimulusDuration'])
+    probe2_isi_frames = ms_to_frames(trial['isi'])
+    total_probe2_frames = probe2_frames + probe2_isi_frames
     trial_clock.reset()
     stim_displayed = True
     sub_resp = None
@@ -529,7 +697,7 @@ def abort_if_requested():
 event.globalKeys.add(key='escape', func=_request_abort)
 
 # Sets condition files for either practice or real experiment
-if exp_info['practice'] == 'No':
+if exp_info['Practice'] == 'No':
     block_files = [
     'Block1.xlsx'
 ]
@@ -548,15 +716,18 @@ for block in block_files:
     trial_clock = core.Clock()
     # global_clock.reset()
     for trial in trials:
-        stimulus = trial['stimulus']
-        stim.setText(stimulus)
         kb.clearEvents(eventType='keyboard')
         if trial['trialType'] == 'Non-target' or trial['trialType'] == 'Target':
-            run_number_trial(trial, trial_clock, total_num_frames, num_frames)
+            # The digit's text and height are set inside run_number_trial on
+            # digit_stim; `stim` carries probe text only, so setting it here
+            # would just be a wasted texture rebuild between trials.
+            run_number_trial(trial, trial_clock)
         elif trial['trialType'] == 'Probe 1':
-            previous_resp = run_probe1_trial(trial, trial_clock, total_probe1_frames, probe1_frames)
+            stim.setText(trial['stimulus'])
+            previous_resp = run_probe1_trial(trial, trial_clock)
         elif trial['trialType'] == 'Probe 2':
-            run_probe2_trial(trial, trial_clock, previous_resp, total_probe2_frames, probe2_frames)
+            stim.setText(trial['stimulus'])
+            run_probe2_trial(trial, trial_clock, previous_resp)
         trial_count+=1
         thisExp.nextEntry()
         abort_if_requested()
