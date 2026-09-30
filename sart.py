@@ -100,7 +100,7 @@ if mon.getWidth() is None or mon.getDistance() is None:
 # Initial Setup
 this_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(this_dir)
-exp_info = {'participující': '', 'sezení': '1', 'practice': ('No', 'Yes')}
+exp_info = {'participující': '', 'sezení': '1', 'practice': ('Yes', 'No')}
 dlg = gui.DlgFromDict(dictionary = exp_info, sortKeys=False, title=EXP_NAME)
 if not dlg.OK:
     core.quit()
